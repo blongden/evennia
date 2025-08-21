@@ -43,13 +43,15 @@ from twisted.internet.task import deferLater
 from evennia.commands.cmdset import CmdSet
 from evennia.commands.command import InterruptCommand
 from evennia.utils import logger, utils
-from evennia.utils.utils import string_suggestions
+from evennia.utils.utils import make_iter, string_suggestions
 
 _IN_GAME_ERRORS = settings.IN_GAME_ERRORS
 
 __all__ = ("cmdhandler", "InterruptCommand")
 _GA = object.__getattribute__
-_CMDSET_MERGE_CACHE = WeakValueDictionary()
+
+_COMMON_CMDSET_CACHE = {} # WeakValueDictionary()
+_EXIT_CMDSET_CACHE = {} # WeakValueDictionary()
 
 # tracks recursive calls by each caller
 # to avoid infinite loops (commands calling themselves)
@@ -413,16 +415,43 @@ def get_and_merge_cmdsets(
             except AttributeError:
                 return (CmdSet(), [])
 
+        @inlineCallbacks
+        def merge_cmdsets(cmdsets_to_merge):
+            """Helper function to merge a list of cmdsets."""
+            if not cmdsets_to_merge:
+                return CmdSet()
+                
+            # Group by priority
+            tempmergers = {}
+            for cmdset in cmdsets_to_merge:
+                prio = cmdset.priority
+                if prio in tempmergers:
+                    tempmergers[prio] = yield tempmergers[prio] + cmdset
+                else:
+                    tempmergers[prio] = cmdset
+                    
+            # Sort and merge
+            sorted_cmdsets = sorted(list(tempmergers.values()), 
+                                        key=lambda x: x.priority)
+            
+            # Merge in order
+            final_cmdset = sorted_cmdsets[0]
+            for merging_cmdset in sorted_cmdsets[1:]:
+                final_cmdset = final_cmdset + merging_cmdset
+                
+            return final_cmdset
+
         local_obj_cmdsets = []
 
         current_cmdset = CmdSet()
         object_cmdsets = list()
-        for cmdobj in cmdset_providers:
+        for cmdobj in make_iter(cmdset_providers):
             current, cur_cmdsets = yield _get_cmdsets(cmdobj, current_cmdset)
             if current:
                 current_cmdset = current_cmdset + current
             if cur_cmdsets:
                 object_cmdsets += cur_cmdsets
+
             match cmdobj.cmdset_provider_type:
                 case "object":
                     if not current.no_objs:
@@ -447,35 +476,35 @@ def get_and_merge_cmdsets(
             ]
 
         if cmdsets:
-            # faster to do tuple on list than to build tuple directly
-            mergehash = tuple([id(cmdset) for cmdset in cmdsets])
-            if mergehash in _CMDSET_MERGE_CACHE:
-                # cached merge exist; use that
-                cmdset = _CMDSET_MERGE_CACHE[mergehash]
+            # Split cmdsets into common and exit/room-specific sets
+            common_cmdsets = [cmdset for cmdset in cmdsets if cmdset.key != "ExitCmdSet"]
+            exit_cmdsets = [cmdset for cmdset in cmdsets if cmdset.key == "ExitCmdSet"]
+            
+            # Create separate hashes
+            common_hash = tuple([id(cmdset) for cmdset in common_cmdsets])
+            exit_hash = tuple([id(cmdset) for cmdset in exit_cmdsets])
+
+            if common_hash in _COMMON_CMDSET_CACHE:
+                merged_common = _COMMON_CMDSET_CACHE[common_hash]
+                print("DEBUG: cache hit! common cmdset has is {}".format(common_hash))
             else:
-                # we group and merge all same-prio cmdsets separately (this avoids
-                # order-dependent clashes in certain cases, such as
-                # when duplicates=True)
-                tempmergers = {}
-                for cmdset in cmdsets:
-                    prio = cmdset.priority
-                    if prio in tempmergers:
-                        # merge same-prio cmdset together separately
-                        tempmergers[prio] = yield tempmergers[prio] + cmdset
-                    else:
-                        tempmergers[prio] = cmdset
-
-                # sort cmdsets after reverse priority (highest prio are merged in last)
-                sorted_cmdsets = yield sorted(list(tempmergers.values()), key=lambda x: x.priority)
-
-                # Merge all command sets into one, beginning with the lowest-prio one
-                cmdset = sorted_cmdsets[0]
-                for merging_cmdset in sorted_cmdsets[1:]:
-                    cmdset = yield cmdset + merging_cmdset
-                # store the original, ungrouped set for diagnosis
-                cmdset.merged_from = cmdsets
-                # cache
-                _CMDSET_MERGE_CACHE[mergehash] = cmdset
+                print("DEBUG: cache miss! merging common cmdsets")
+                # Merge common cmdsets
+                merged_common = yield merge_cmdsets(common_cmdsets)
+                _COMMON_CMDSET_CACHE[common_hash] = merged_common
+            
+            # Handle exit cmdsets separately
+            if exit_hash in _EXIT_CMDSET_CACHE:
+                merged_exits = _EXIT_CMDSET_CACHE[exit_hash]
+                print("DEBUG: cache hit! exit cmdset has is {}".format(exit_hash))
+            else:
+                print("DEBUG: cache miss! merging exit cmdsets")
+                # Merge exit cmdsets
+                merged_exits = yield merge_cmdsets(exit_cmdsets)
+                _EXIT_CMDSET_CACHE[exit_hash] = merged_exits
+            
+            # Final merge of common and exit cmdsets
+            cmdset = merged_common + merged_exits
         else:
             cmdset = None
         for cset in (cset for cset in local_obj_cmdsets if cset):
