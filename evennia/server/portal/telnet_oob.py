@@ -177,7 +177,7 @@ class TelnetOOB:
         if not (args or kwargs):
             return msdp_cmdname.encode()
 
-        print("encode_msdp in:", cmdname, args, kwargs)  # DEBUG
+        # print("encode_msdp in:", cmdname, args, kwargs)  # DEBUG
 
         msdp_args = ""
         if args:
