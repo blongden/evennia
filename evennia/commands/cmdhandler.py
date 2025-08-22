@@ -344,6 +344,7 @@ def get_and_merge_cmdsets(
 
     """
     try:
+        print("DEBUG: Start get_and_merge_cmdsets")
 
         @inlineCallbacks
         def _get_local_obj_cmdsets(obj):
@@ -351,6 +352,9 @@ def get_and_merge_cmdsets(
             Helper-method; Get Object-level cmdsets
 
             """
+            from datetime import datetime
+            start = datetime.now()
+
             # Gather cmdsets from location, objects in location or carried
             try:
                 local_obj_cmdsets = []
@@ -364,18 +368,22 @@ def get_and_merge_cmdsets(
                     local_objlist = yield (
                         location.contents_get(exclude=obj) + obj.contents_get() + [location]
                     )
+                    print("CMDSET DEBUG: local_objlist gathered in {}".format(datetime.now() - start))
                     local_objlist = [
                         o
                         for o in local_objlist
                         if not o._is_deleted
                         and o.access(caller, access_type="call", no_superuser_bypass=True)
                     ]
+                    print("CMDSET DEBUG: local_objlist filtered in {}".format(datetime.now() - start))
                     for lobj in local_objlist:
                         try:
                             # call hook in case we need to do dynamic changing to cmdset
                             _GA(lobj, "at_cmdset_get")(caller=caller)
                         except Exception:
                             logger.log_trace()
+                    print("CMDSET DEBUG: at_cmdset_get done in {}".format(datetime.now() - start))
+
                     # the call-type lock is checked here, it makes sure an account
                     # is not seeing e.g. the commands on a fellow account (which is why
                     # the no_superuser_bypass must be True)
@@ -386,6 +394,8 @@ def get_and_merge_cmdsets(
                             if lobj.cmdset.current
                         )
                     )
+                    print("CMDSET DEBUG: local_obj_cmdsets gathered in {}".format(datetime.now() - start))
+
                     for cset in local_obj_cmdsets:
                         # This is necessary for object sets, or we won't be able to
                         # separate the command sets from each other in a busy room. We
@@ -486,23 +496,25 @@ def get_and_merge_cmdsets(
 
             if common_hash in _COMMON_CMDSET_CACHE:
                 merged_common = _COMMON_CMDSET_CACHE[common_hash]
-                print("DEBUG: cache hit! common cmdset has is {}".format(common_hash))
+                print("DEBUG: cache hit! {}".format(common_hash))
             else:
-                print("DEBUG: cache miss! merging common cmdsets")
+                print("DEBUG: cache miss! {}".format(common_hash))
                 # Merge common cmdsets
                 merged_common = yield merge_cmdsets(common_cmdsets)
                 _COMMON_CMDSET_CACHE[common_hash] = merged_common
             
+            print("DEBUG: Common complete")
             # Handle exit cmdsets separately
             if exit_hash in _EXIT_CMDSET_CACHE:
                 merged_exits = _EXIT_CMDSET_CACHE[exit_hash]
-                print("DEBUG: cache hit! exit cmdset has is {}".format(exit_hash))
+                print("DEBUG: EXIT cache hit! {}".format(exit_hash))
             else:
-                print("DEBUG: cache miss! merging exit cmdsets")
+                print("DEBUG: EXIT cache miss! {}".format(exit_hash))
                 # Merge exit cmdsets
                 merged_exits = yield merge_cmdsets(exit_cmdsets)
                 _EXIT_CMDSET_CACHE[exit_hash] = merged_exits
             
+            print("DEBUG: Exit complete")
             # Final merge of common and exit cmdsets
             cmdset = merged_common + merged_exits
         else:

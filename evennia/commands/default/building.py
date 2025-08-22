@@ -3598,16 +3598,19 @@ class CmdScripts(COMMAND_DEFAULT_CLASS):
 
     def func(self):
         """implement method"""
-
+        print("DEBUG: start of CmdScripts -> func")
         caller = self.caller
 
         if not self.args:
             # show all scripts
+            print("DEBUG: before script query")
             scripts = ScriptDB.objects.all().exclude(db_typeclass_path__in=self.hide_script_paths)
+            print("DEBUG: after script query")
             if not scripts:
                 caller.msg("No scripts found.")
                 return
             ScriptEvMore(caller, scripts.order_by("id"), session=self.session)
+            print("DEBUG: end of CmdScripts -> func")
             return
 
         # find script or object to operate on
@@ -3709,6 +3712,7 @@ class CmdScripts(COMMAND_DEFAULT_CLASS):
                         caller.msg("Script was deleted automatically.")
         else:
             caller.msg("No scripts found.")
+        print("DEBUG: end of CmdScripts -> func")
 
 
 class CmdObjects(COMMAND_DEFAULT_CLASS):
