@@ -53,6 +53,7 @@ _GA = object.__getattribute__
 
 _COMMON_CMDSET_CACHE = {} # WeakValueDictionary()
 _EXIT_CMDSET_CACHE = {} # WeakValueDictionary()
+_FULL_CMDSET_CACHE = {} # WeakValueDictionary()
 
 # tracks recursive calls by each caller
 # to avoid infinite loops (commands calling themselves)
@@ -493,7 +494,11 @@ def get_and_merge_cmdsets(
             # Create separate hashes
             object_hash = tuple([id(cmdset) for cmdset in object_cmdsets])
             room_hash = tuple([id(cmdset) for cmdset in room_cmdsets])
-
+            full_hash = tuple(list(object_hash) + list(room_hash))
+            
+            if full_hash in _FULL_CMDSET_CACHE:
+                return _FULL_CMDSET_CACHE[full_hash]
+            
             if object_hash in _COMMON_CMDSET_CACHE:
                 merged_object = _COMMON_CMDSET_CACHE[object_hash]
             else:
@@ -513,8 +518,10 @@ def get_and_merge_cmdsets(
                 print(f"DEBUG: exit cache miss ({len(room_hash)} cmdsets) took {datetime.now() - start}s")
                 _EXIT_CMDSET_CACHE[room_hash] = merged_room
 
+
             # Final merge of common and exit cmdsets
             cmdset = merged_object + merged_room
+            _FULL_CMDSET_CACHE[full_hash] = cmdset
         else:
             cmdset = None
         for cset in (cset for cset in local_obj_cmdsets if cset):
