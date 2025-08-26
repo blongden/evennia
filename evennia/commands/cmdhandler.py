@@ -27,6 +27,7 @@ command line. The processing of a command works as follows:
 
 """
 
+from datetime import datetime
 import types
 from collections import defaultdict
 from copy import copy
@@ -368,21 +369,18 @@ def get_and_merge_cmdsets(
                     local_objlist = yield (
                         location.contents_get(exclude=obj) + obj.contents_get() + [location]
                     )
-                    print("CMDSET DEBUG: local_objlist gathered in {}".format(datetime.now() - start))
                     local_objlist = [
                         o
                         for o in local_objlist
                         if not o._is_deleted
                         and o.access(caller, access_type="call", no_superuser_bypass=True)
                     ]
-                    print("CMDSET DEBUG: local_objlist filtered in {}".format(datetime.now() - start))
                     for lobj in local_objlist:
                         try:
                             # call hook in case we need to do dynamic changing to cmdset
                             _GA(lobj, "at_cmdset_get")(caller=caller)
                         except Exception:
                             logger.log_trace()
-                    print("CMDSET DEBUG: at_cmdset_get done in {}".format(datetime.now() - start))
 
                     # the call-type lock is checked here, it makes sure an account
                     # is not seeing e.g. the commands on a fellow account (which is why
@@ -394,7 +392,6 @@ def get_and_merge_cmdsets(
                             if lobj.cmdset.current
                         )
                     )
-                    print("CMDSET DEBUG: local_obj_cmdsets gathered in {}".format(datetime.now() - start))
 
                     for cset in local_obj_cmdsets:
                         # This is necessary for object sets, or we won't be able to
@@ -434,12 +431,14 @@ def get_and_merge_cmdsets(
             # Group by priority
             tempmergers = {}
             for cmdset in cmdsets_to_merge:
+                start = datetime.now()
                 prio = cmdset.priority
                 if prio in tempmergers:
                     tempmergers[prio] = yield tempmergers[prio] + cmdset
                 else:
                     tempmergers[prio] = cmdset
-                    
+                
+                # print(f"DEBUG: merged {cmdset.__class__.__name__} {prio} {len(cmdset.commands)} took {datetime.now() - start}s")   
             # Sort and merge
             sorted_cmdsets = sorted(list(tempmergers.values()), 
                                         key=lambda x: x.priority)
@@ -448,13 +447,14 @@ def get_and_merge_cmdsets(
             final_cmdset = sorted_cmdsets[0]
             for merging_cmdset in sorted_cmdsets[1:]:
                 final_cmdset = final_cmdset + merging_cmdset
-                
+
             return final_cmdset
 
         local_obj_cmdsets = []
 
         current_cmdset = CmdSet()
         object_cmdsets = list()
+        room_cmdsets = list()
         for cmdobj in make_iter(cmdset_providers):
             current, cur_cmdsets = yield _get_cmdsets(cmdobj, current_cmdset)
             if current:
@@ -471,52 +471,52 @@ def get_and_merge_cmdsets(
                             local_obj_cmdsets = [
                                 cmdset for cmdset in local_obj_cmdsets if cmdset.key != "ExitCmdSet"
                             ]
-                        object_cmdsets += local_obj_cmdsets
+                        room_cmdsets += local_obj_cmdsets
 
         # weed out all non-found sets
-        cmdsets = yield [
+        object_cmdsets = yield [
             cmdset for cmdset in object_cmdsets if cmdset and cmdset.key != "_EMPTY_CMDSET"
         ]
+
+        # weed out all non-found sets
+        room_cmdsets = yield [
+            cmdset for cmdset in room_cmdsets if cmdset and cmdset.key != "_EMPTY_CMDSET"
+        ]
+
         # report cmdset errors to user (these should already have been logged)
         if report_to:
             yield [
                 report_to.msg(err_helper(cmdset.errmessage, cmdid=cmdid))
-                for cmdset in cmdsets
+                for cmdset in object_cmdsets + room_cmdsets
                 if cmdset.key == "_CMDSET_ERROR"
             ]
 
-        if cmdsets:
-            # Split cmdsets into common and exit/room-specific sets
-            common_cmdsets = [cmdset for cmdset in cmdsets if cmdset.key != "ExitCmdSet"]
-            exit_cmdsets = [cmdset for cmdset in cmdsets if cmdset.key == "ExitCmdSet"]
-            
+        if object_cmdsets or room_cmdsets:
             # Create separate hashes
-            common_hash = tuple([id(cmdset) for cmdset in common_cmdsets])
-            exit_hash = tuple([id(cmdset) for cmdset in exit_cmdsets])
+            object_hash = tuple([id(cmdset) for cmdset in object_cmdsets])
+            room_hash = tuple([id(cmdset) for cmdset in room_cmdsets])
 
-            if common_hash in _COMMON_CMDSET_CACHE:
-                merged_common = _COMMON_CMDSET_CACHE[common_hash]
-                print("DEBUG: cache hit! {}".format(common_hash))
+            if object_hash in _COMMON_CMDSET_CACHE:
+                merged_object = _COMMON_CMDSET_CACHE[object_hash]
             else:
-                print("DEBUG: cache miss! {}".format(common_hash))
                 # Merge common cmdsets
-                merged_common = yield merge_cmdsets(common_cmdsets)
-                _COMMON_CMDSET_CACHE[common_hash] = merged_common
-            
-            print("DEBUG: Common complete")
+                start = datetime.now()
+                merged_object = yield merge_cmdsets(object_cmdsets)
+                print(f"DEBUG: object cache miss ({len(object_hash)} cmdsets) took {datetime.now() - start}s")
+                _COMMON_CMDSET_CACHE[object_hash] = merged_object
+
             # Handle exit cmdsets separately
-            if exit_hash in _EXIT_CMDSET_CACHE:
-                merged_exits = _EXIT_CMDSET_CACHE[exit_hash]
-                print("DEBUG: EXIT cache hit! {}".format(exit_hash))
+            if room_hash in _EXIT_CMDSET_CACHE:
+                merged_room = _EXIT_CMDSET_CACHE[room_hash]
             else:
-                print("DEBUG: EXIT cache miss! {}".format(exit_hash))
                 # Merge exit cmdsets
-                merged_exits = yield merge_cmdsets(exit_cmdsets)
-                _EXIT_CMDSET_CACHE[exit_hash] = merged_exits
-            
-            print("DEBUG: Exit complete")
+                start = datetime.now()
+                merged_room = yield merge_cmdsets(room_cmdsets)
+                print(f"DEBUG: exit cache miss ({len(room_hash)} cmdsets) took {datetime.now() - start}s")
+                _EXIT_CMDSET_CACHE[room_hash] = merged_room
+
             # Final merge of common and exit cmdsets
-            cmdset = merged_common + merged_exits
+            cmdset = merged_object + merged_room
         else:
             cmdset = None
         for cset in (cset for cset in local_obj_cmdsets if cset):

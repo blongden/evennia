@@ -720,7 +720,6 @@ class DefaultObject(ObjectDB, metaclass=TypeclassBase):
 
         nofound_string = kwargs.get("nofound_string")
         multimatch_string = kwargs.get("multimatch_string")
-
         return _AT_SEARCH_RESULT(
             results,
             self,
