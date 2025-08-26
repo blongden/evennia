@@ -345,8 +345,6 @@ def get_and_merge_cmdsets(
 
     """
     try:
-        print("DEBUG: Start get_and_merge_cmdsets")
-
         @inlineCallbacks
         def _get_local_obj_cmdsets(obj):
             """
