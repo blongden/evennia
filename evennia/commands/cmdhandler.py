@@ -437,7 +437,7 @@ def get_and_merge_cmdsets(
                 else:
                     tempmergers[prio] = cmdset
                 
-                # print(f"DEBUG: merged {cmdset.__class__.__name__} {prio} {len(cmdset.commands)} took {datetime.now() - start}s")   
+                print(f"DEBUG: merged {cmdset.__class__.__name__} {prio} {len(cmdset.commands)} took {datetime.now() - start}s")   
             # Sort and merge
             sorted_cmdsets = sorted(list(tempmergers.values()), 
                                         key=lambda x: x.priority)
@@ -445,6 +445,7 @@ def get_and_merge_cmdsets(
             # Merge in order
             final_cmdset = sorted_cmdsets[0]
             for merging_cmdset in sorted_cmdsets[1:]:
+                print(f"DEBUG: merging to final {merging_cmdset.__class__.__name__} {merging_cmdset.priority} {len(merging_cmdset.commands)}")
                 final_cmdset = final_cmdset + merging_cmdset
 
             return final_cmdset
