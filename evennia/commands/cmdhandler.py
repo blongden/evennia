@@ -28,6 +28,7 @@ command line. The processing of a command works as follows:
 """
 
 from datetime import datetime
+import json
 import types
 from collections import defaultdict
 from copy import copy
@@ -504,7 +505,7 @@ def get_and_merge_cmdsets(
                 # Merge common cmdsets
                 start = datetime.now()
                 merged_object = yield merge_cmdsets(object_cmdsets)
-                print(f"DEBUG: object cache miss ({len(object_hash)} cmdsets) took {datetime.now() - start}s")
+                print(json.dumps({"event": "cache_miss", "cmdset_type": "object", "cmdset_count": len(object_hash), "duration": str(datetime.now() - start)}))
                 _COMMON_CMDSET_CACHE[object_hash] = merged_object
 
             # Handle exit cmdsets separately
@@ -514,12 +515,14 @@ def get_and_merge_cmdsets(
                 # Merge exit cmdsets
                 start = datetime.now()
                 merged_room = yield merge_cmdsets(room_cmdsets)
-                # print(f"DEBUG: exit cache miss ({len(room_hash)} cmdsets) took {datetime.now() - start}s")
+                print(json.dumps({"event": "cache_miss", "cmdset_type": "room", "cmdset_count": len(room_hash), "duration": str(datetime.now() - start)}))
                 _EXIT_CMDSET_CACHE[room_hash] = merged_room
 
 
             # Final merge of common and exit cmdsets
+            start = datetime.now()
             cmdset = merged_object + merged_room
+            print(json.dumps({"event": "cache_miss", "cmdset_type": "full", "cmdset_count": len(full_hash), "duration": str(datetime.now() - start)}))
             _FULL_CMDSET_CACHE[full_hash] = cmdset
         else:
             cmdset = None
