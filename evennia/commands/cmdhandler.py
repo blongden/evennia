@@ -505,7 +505,7 @@ def get_and_merge_cmdsets(
                 # Merge common cmdsets
                 start = datetime.now()
                 merged_object = yield merge_cmdsets(object_cmdsets)
-                print(json.dumps({"event": "cache_miss", "cmdset_type": "object", "cmdset_count": len(object_hash), "duration": str(datetime.now() - start)}))
+                logger.info(json.dumps({"event": "cache_miss", "cmdset_type": "object", "cmdset_count": len(object_hash), "duration": str(datetime.now() - start)}))
                 _COMMON_CMDSET_CACHE[object_hash] = merged_object
 
             # Handle exit cmdsets separately
@@ -515,14 +515,14 @@ def get_and_merge_cmdsets(
                 # Merge exit cmdsets
                 start = datetime.now()
                 merged_room = yield merge_cmdsets(room_cmdsets)
-                print(json.dumps({"event": "cache_miss", "cmdset_type": "room", "cmdset_count": len(room_hash), "duration": str(datetime.now() - start)}))
+                logger.info(json.dumps({"event": "cache_miss", "cmdset_type": "room", "cmdset_count": len(room_hash), "duration": str(datetime.now() - start)}))
                 _EXIT_CMDSET_CACHE[room_hash] = merged_room
 
 
             # Final merge of common and exit cmdsets
             start = datetime.now()
             cmdset = merged_object + merged_room
-            print(json.dumps({"event": "cache_miss", "cmdset_type": "full", "cmdset_count": len(full_hash), "duration": str(datetime.now() - start)}))
+            logger.info(json.dumps({"event": "cache_miss", "cmdset_type": "full", "cmdset_count": len(full_hash), "duration": str(datetime.now() - start)}))
             _FULL_CMDSET_CACHE[full_hash] = cmdset
         else:
             cmdset = None
@@ -675,7 +675,9 @@ def cmdhandler(
 
             # main command code
             # (return value is normally None)
+            start = datetime.now()
             ret = cmd.func()
+            logger.log_file(f"{caller} executed command {cmdname} (args: {args}) in {datetime.now() - start}", "timings.log")
             if isinstance(ret, types.GeneratorType):
                 # cmd.func() is a generator, execute progressively
                 _progressive_cmd_run(cmd, ret)
