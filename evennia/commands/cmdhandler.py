@@ -353,9 +353,6 @@ def get_and_merge_cmdsets(
             Helper-method; Get Object-level cmdsets
 
             """
-            from datetime import datetime
-            start = datetime.now()
-
             # Gather cmdsets from location, objects in location or carried
             try:
                 local_obj_cmdsets = []
@@ -431,7 +428,6 @@ def get_and_merge_cmdsets(
             # Group by priority
             tempmergers = {}
             for cmdset in cmdsets_to_merge:
-                start = datetime.now()
                 prio = cmdset.priority
                 if prio in tempmergers:
                     tempmergers[prio] = yield tempmergers[prio] + cmdset
@@ -664,6 +660,7 @@ def cmdhandler(
                 )
                 raise RuntimeError(err)
 
+            start = datetime.now()
             # pre-command hook
             abort = yield cmd.at_pre_cmd()
             if abort:
@@ -675,9 +672,7 @@ def cmdhandler(
 
             # main command code
             # (return value is normally None)
-            start = datetime.now()
             ret = cmd.func()
-            logger.log_file(f"{caller} executed command {cmdname} (args: {args}) in {datetime.now() - start}", "timings.log")
             if isinstance(ret, types.GeneratorType):
                 # cmd.func() is a generator, execute progressively
                 _progressive_cmd_run(cmd, ret)
@@ -705,6 +700,7 @@ def cmdhandler(
             raise ErrorReported(raw_string)
         finally:
             _COMMAND_NESTING[called_by] -= 1
+            logger.log_file(f"{caller}\t{cmdname}\t{datetime.now() - start}", "timings.log")
 
     (
         cmdset_providers,
