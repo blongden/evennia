@@ -29,6 +29,7 @@ command line. The processing of a command works as follows:
 
 from datetime import datetime
 import json
+import time
 import types
 from collections import defaultdict
 from copy import copy
@@ -660,7 +661,6 @@ def cmdhandler(
                 )
                 raise RuntimeError(err)
 
-            start = datetime.now()
             # pre-command hook
             abort = yield cmd.at_pre_cmd()
             if abort:
@@ -684,7 +684,6 @@ def cmdhandler(
             else:
                 # post-command hook
                 yield cmd.at_post_cmd()
-
                 if cmd.save_for_next:
                     # store a reference to this command, possibly
                     # accessible by the next command.
@@ -700,7 +699,6 @@ def cmdhandler(
             raise ErrorReported(raw_string)
         finally:
             _COMMAND_NESTING[called_by] -= 1
-            logger.log_file(f"{caller}\t{cmdname}\t{datetime.now() - start}", "timings.log")
 
     (
         cmdset_providers,
