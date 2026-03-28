@@ -1254,6 +1254,13 @@ class DefaultObject(ObjectDB, metaclass=TypeclassBase):
         # Save the old location
         source_location = self.location
 
+        _mt = time.perf_counter()
+        def _mt_mark():
+            nonlocal _mt
+            elapsed = (time.perf_counter() - _mt) * 1000
+            _mt = time.perf_counter()
+            return elapsed
+
         # Before the move, call pre-hooks
         if move_hooks:
             # check if we are okay to move
@@ -1263,6 +1270,7 @@ class DefaultObject(ObjectDB, metaclass=TypeclassBase):
             except Exception as err:
                 logerr(errtxt.format(err="at_pre_move()"), err)
                 return False
+            _pre_move = _mt_mark()
             # check if source location lets us go
             try:
                 if source_location and not source_location.at_pre_object_leave(
@@ -1281,6 +1289,9 @@ class DefaultObject(ObjectDB, metaclass=TypeclassBase):
             except Exception as err:
                 logerr(errtxt.format(err="at_pre_object_receive()"), err)
                 return False
+        else:
+            _pre_move = 0
+        _pre_hooks = _mt_mark()
 
         # Call hook on source location
         if move_hooks and source_location:
@@ -1289,6 +1300,7 @@ class DefaultObject(ObjectDB, metaclass=TypeclassBase):
             except Exception as err:
                 logerr(errtxt.format(err="at_object_leave()"), err)
                 return False
+        _leave = _mt_mark()
 
         if not quiet:
             # tell the old room we are leaving
@@ -1304,6 +1316,7 @@ class DefaultObject(ObjectDB, metaclass=TypeclassBase):
         except Exception as err:
             logerr(errtxt.format(err="location change"), err)
             return False
+        _save = _mt_mark()
 
         if not quiet:
             # Tell the new room we are there.
@@ -1321,6 +1334,7 @@ class DefaultObject(ObjectDB, metaclass=TypeclassBase):
             except Exception as err:
                 logerr(errtxt.format(err="at_object_receive()"), err)
                 return False
+        _receive = _mt_mark()
 
         # Execute eventual extra commands on this object after moving it
         # (usually calling 'look')
@@ -1330,6 +1344,14 @@ class DefaultObject(ObjectDB, metaclass=TypeclassBase):
             except Exception as err:
                 logerr(errtxt.format(err="at_post_move"), err)
                 return False
+        _post = _mt_mark()
+
+        _total = _pre_move + _pre_hooks + _leave + _save + _receive + _post
+        if _total >= 50 and hasattr(self, 'typename') and self.typename == "Character":
+            from world.perf import perf_log
+            perf_log("move_to", _total, caller=self,
+                     detail=f"pre_move={_pre_move:.0f}ms hooks={_pre_hooks:.0f}ms leave={_leave:.0f}ms save={_save:.0f}ms receive={_receive:.0f}ms post={_post:.0f}ms")
+
         return True
 
     def clear_exits(self):
