@@ -571,8 +571,6 @@ class CmdSetHandler(object):
                     pass
         # re-sync the cmdsethandler.
         self.update()
-        from evennia.commands.cmdhandler import invalidate_stable_cache
-        invalidate_stable_cache(self.obj)
 
     # legacy alias
     delete = remove
