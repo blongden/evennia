@@ -695,6 +695,20 @@ def cmdhandler(
                     syscmd = yield cmdset.get(CMD_NOINPUT)
                     sysarg = ""
                     raise ExecSystemCommand(syscmd, sysarg)
+                # If get_input is active, route ALL input directly to the
+                # input handler instead of matching against commands.
+                # Without this, commands with aliases like "yes" or "no"
+                # intercept confirmation prompts.
+                if getattr(getattr(caller, "ndb", None), "_getinput", None):
+                    syscmd = yield cmdset.get(CMD_NOMATCH)
+                    if syscmd:
+                        syscmd.caller = caller
+                        syscmd.cmdname = raw_string.strip()
+                        syscmd.raw_string = unformatted_raw_string
+                        syscmd.cmdstring = raw_string.strip()
+                        syscmd.args = ""
+                        raise ExecSystemCommand(syscmd, raw_string)
+
                 # Parse the input string and match to available cmdset.
                 # This also checks for permissions, so all commands in match
                 # are commands the caller is allowed to call.
