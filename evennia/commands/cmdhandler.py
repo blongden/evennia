@@ -680,9 +680,14 @@ def cmdhandler(
 
             else:
                 # no explicit cmdobject given, figure it out
+                import time as _time
+                _merge_start = _time.perf_counter()
                 cmdset = yield get_and_merge_cmdsets(
                     caller, cmdset_providers_list, callertype, raw_string, cmdid=cmdid
                 )
+                _merge_ms = (_time.perf_counter() - _merge_start) * 1000
+                if _merge_ms >= 50:
+                    logger.log_info(f"[PERF] cmdset_merge: {_merge_ms:.0f}ms | {caller}")
                 if not cmdset:
                     # this is bad and shouldn't happen.
                     raise NoCmdSets
