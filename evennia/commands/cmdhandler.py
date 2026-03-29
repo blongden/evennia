@@ -702,6 +702,7 @@ def cmdhandler(
                 _getinput = getattr(getattr(caller, "ndb", None), "_getinput", None)
                 if _getinput:
                     syscmd = yield cmdset.get(CMD_NOMATCH)
+                    logger.log_info(f"[DEBUG] get_input active. CMD_NOMATCH={syscmd}. cmdset keys={[c.key for c in cmdset.commands]}. cmdset prio={cmdset.priority} merge={cmdset.mergetype}")
                     if syscmd:
                         syscmd.raw_string = unformatted_raw_string
                         raise ExecSystemCommand(syscmd, unformatted_raw_string)
