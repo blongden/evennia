@@ -35,7 +35,6 @@ from collections import defaultdict
 from copy import copy
 from itertools import chain
 from traceback import format_exc
-from weakref import WeakValueDictionary
 
 from django.conf import settings
 from django.utils.translation import gettext as _
@@ -52,10 +51,9 @@ _IN_GAME_ERRORS = settings.IN_GAME_ERRORS
 
 __all__ = ("cmdhandler", "InterruptCommand")
 _GA = object.__getattribute__
-
-_COMMON_CMDSET_CACHE = {} # WeakValueDictionary()
-_EXIT_CMDSET_CACHE = {} # WeakValueDictionary()
-_FULL_CMDSET_CACHE = {} # WeakValueDictionary()
+_COMMON_CMDSET_CACHE = {}
+_EXIT_CMDSET_CACHE = {}
+_FULL_CMDSET_CACHE = {}
 
 # tracks recursive calls by each caller
 # to avoid infinite loops (commands calling themselves)
@@ -696,7 +694,7 @@ def cmdhandler(
             pass
         except Exception:
             _msg_err(caller, _ERROR_UNTRAPPED)
-            raise ErrorReported(raw_string)
+            raise ErrorReported(cmd.raw_string)
         finally:
             _COMMAND_NESTING[called_by] -= 1
 
@@ -806,7 +804,7 @@ def cmdhandler(
         except ErrorReported as exc:
             # this error was already reported, so we
             # catch it here and don't pass it on.
-            logger.log_err("User input was: '%s'." % exc.raw_string)
+            logger.log_err("User input was: '%s'." % logger.mask_sensitive_input(exc.raw_string))
 
         except ExecSystemCommand as exc:
             # Not a normal command: run a system command, if available,
