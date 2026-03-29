@@ -51,6 +51,16 @@ _GA = object.__getattribute__
 _CMDSET_MERGE_CACHE = {}
 _STABLE_MERGE_CACHE = {}  # keyed on (caller_id, location_id)
 
+
+def invalidate_stable_cache(obj):
+    """Invalidate the stable cmdset merge cache for an object.
+
+    Called by CmdSetHandler.add() and .remove() when cmdsets change.
+    """
+    _obj_id = id(obj)
+    _loc_id = id(getattr(obj, 'location', None))
+    _STABLE_MERGE_CACHE.pop((_obj_id, _loc_id), None)
+
 # tracks recursive calls by each caller
 # to avoid infinite loops (commands calling themselves)
 _COMMAND_NESTING = defaultdict(lambda: 0)
