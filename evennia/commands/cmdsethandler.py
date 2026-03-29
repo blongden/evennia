@@ -478,6 +478,9 @@ class CmdSetHandler(object):
             else:
                 self.cmdset_stack.append(cmdset)
             self.update()
+            # invalidate the stable merge cache for this object
+            from evennia.commands.cmdhandler import invalidate_stable_cache
+            invalidate_stable_cache(self.obj)
 
     def add_default(self, cmdset, emit_to_obj=None, persistent=True, **kwargs):
         """
@@ -571,6 +574,9 @@ class CmdSetHandler(object):
                     pass
         # re-sync the cmdsethandler.
         self.update()
+        # invalidate the stable merge cache for this object
+        from evennia.commands.cmdhandler import invalidate_stable_cache
+        invalidate_stable_cache(self.obj)
 
     # legacy alias
     delete = remove

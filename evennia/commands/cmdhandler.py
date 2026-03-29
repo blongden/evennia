@@ -49,6 +49,25 @@ _IN_GAME_ERRORS = settings.IN_GAME_ERRORS
 __all__ = ("cmdhandler", "InterruptCommand")
 _GA = object.__getattribute__
 _CMDSET_MERGE_CACHE = {}
+# Stable merge cache keyed on (caller_id, location_id). Unlike the id()-based
+# _CMDSET_MERGE_CACHE which misses when cmdset objects are recreated, this
+# cache persists across calls for the same caller in the same location.
+# Invalidated automatically by CmdSetHandler.add/remove via invalidate_stable_cache().
+_STABLE_MERGE_CACHE = {}
+
+
+def invalidate_stable_cache(obj):
+    """Invalidate the stable cmdset merge cache for an object.
+
+    Called automatically by CmdSetHandler.add() and .remove() when
+    cmdsets change on an object, ensuring the next command re-merges.
+
+    Args:
+        obj: The object whose cached merge should be invalidated.
+    """
+    _obj_id = id(obj)
+    _loc_id = id(getattr(obj, 'location', None))
+    _STABLE_MERGE_CACHE.pop((_obj_id, _loc_id), None)
 
 # tracks recursive calls by each caller
 # to avoid infinite loops (commands calling themselves)
@@ -446,11 +465,18 @@ def get_and_merge_cmdsets(
             ]
 
         if cmdsets:
-            # faster to do tuple on list than to build tuple directly
-            mergehash = tuple([id(cmdset) for cmdset in cmdsets])
-            if mergehash in _CMDSET_MERGE_CACHE:
-                # cached merge exist; use that
+            # Stable cache: keyed on (caller_id, location_id). Persists across
+            # calls unlike the id()-based cache which misses when cmdset objects
+            # are recreated. Invalidated by CmdSetHandler.add/remove.
+            _caller_id = id(caller)
+            _loc_id = id(getattr(caller, 'location', None))
+            _stable_key = (_caller_id, _loc_id)
+            if _stable_key in _STABLE_MERGE_CACHE:
+                cmdset = _STABLE_MERGE_CACHE[_stable_key]
+            # Fall back to id()-based cache
+            elif (mergehash := tuple(id(cs) for cs in cmdsets)) in _CMDSET_MERGE_CACHE:
                 cmdset = _CMDSET_MERGE_CACHE[mergehash]
+                _STABLE_MERGE_CACHE[_stable_key] = cmdset
             else:
                 # we group and merge all same-prio cmdsets separately (this avoids
                 # order-dependent clashes in certain cases, such as
@@ -473,8 +499,9 @@ def get_and_merge_cmdsets(
                     cmdset = yield cmdset + merging_cmdset
                 # store the original, ungrouped set for diagnosis
                 cmdset.merged_from = cmdsets
-                # cache
+                # cache in both caches
                 _CMDSET_MERGE_CACHE[mergehash] = cmdset
+                _STABLE_MERGE_CACHE[_stable_key] = cmdset
         else:
             cmdset = None
         for cset in (cset for cset in local_obj_cmdsets if cset):

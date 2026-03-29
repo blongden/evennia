@@ -1425,3 +1425,94 @@ class TestIssue2627(TwistedTestCase, BaseEvenniaTest):
 
         d.addCallback(_callback)
         return d
+
+
+class TestStableMergeCache(BaseEvenniaTest):
+    """Test the stable cmdset merge cache and its invalidation."""
+
+    def test_invalidate_stable_cache_clears_entry(self):
+        """invalidate_stable_cache should remove the cached entry for an object."""
+        from evennia.commands.cmdhandler import _STABLE_MERGE_CACHE, invalidate_stable_cache
+
+        obj = self.char1
+        key = (id(obj), id(obj.location))
+        _STABLE_MERGE_CACHE[key] = "cached_result"
+        self.assertIn(key, _STABLE_MERGE_CACHE)
+
+        invalidate_stable_cache(obj)
+        self.assertNotIn(key, _STABLE_MERGE_CACHE)
+
+    def test_invalidate_stable_cache_no_location(self):
+        """invalidate_stable_cache should handle objects with no location."""
+        from evennia.commands.cmdhandler import _STABLE_MERGE_CACHE, invalidate_stable_cache
+
+        obj = self.char1
+        key = (id(obj), id(None))
+        _STABLE_MERGE_CACHE[key] = "cached_result"
+
+        original_loc = obj.location
+        obj.location = None
+        try:
+            invalidate_stable_cache(obj)
+            self.assertNotIn(key, _STABLE_MERGE_CACHE)
+        finally:
+            obj.location = original_loc
+
+    def test_invalidate_stable_cache_ignores_missing_key(self):
+        """invalidate_stable_cache should not error if no cache entry exists."""
+        from evennia.commands.cmdhandler import invalidate_stable_cache
+
+        # Should not raise
+        invalidate_stable_cache(self.char1)
+
+    def test_cmdset_add_invalidates_cache(self):
+        """Adding a cmdset should invalidate the stable merge cache."""
+        from evennia.commands.cmdhandler import _STABLE_MERGE_CACHE
+
+        obj = self.char1
+        key = (id(obj), id(obj.location))
+        _STABLE_MERGE_CACHE[key] = "cached_result"
+
+        # Adding a cmdset should clear the cache
+        obj.cmdset.add(CmdSet)
+        self.assertNotIn(key, _STABLE_MERGE_CACHE)
+
+    def test_cmdset_remove_invalidates_cache(self):
+        """Removing a cmdset should invalidate the stable merge cache."""
+        from evennia.commands.cmdhandler import _STABLE_MERGE_CACHE
+
+        obj = self.char1
+        key = (id(obj), id(obj.location))
+
+        # Add a cmdset first so we have something to remove
+        obj.cmdset.add(CmdSet)
+        _STABLE_MERGE_CACHE[key] = "cached_result"
+
+        obj.cmdset.remove(CmdSet)
+        self.assertNotIn(key, _STABLE_MERGE_CACHE)
+
+
+class TestCommandHash(TestCase):
+    """Test that Command.__hash__ uses the key for proper set performance."""
+
+    def test_different_keys_different_hashes(self):
+        """Commands with different keys should (usually) have different hashes."""
+        cmd_a = _CmdA("test")
+        cmd_b = _CmdB("test")
+        # Different keys should give different hashes
+        self.assertNotEqual(hash(cmd_a), hash(cmd_b))
+
+    def test_same_key_same_hash(self):
+        """Two command instances with the same key should have the same hash."""
+        cmd1 = _CmdA("test1")
+        cmd2 = _CmdA("test2")
+        self.assertEqual(hash(cmd1), hash(cmd2))
+
+    def test_set_operations_work(self):
+        """Commands should work correctly in sets (the main use case)."""
+        cmd_a = _CmdA("test")
+        cmd_b = _CmdB("test")
+        cmd_set = {cmd_a, cmd_b}
+        self.assertEqual(len(cmd_set), 2)
+        self.assertIn(cmd_a, cmd_set)
+        self.assertIn(cmd_b, cmd_set)
