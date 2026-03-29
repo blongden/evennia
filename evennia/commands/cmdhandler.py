@@ -415,14 +415,13 @@ def get_and_merge_cmdsets(
         local_obj_cmdsets = []
 
         current_cmdset = CmdSet()
-        char_cmdsets = list()
-        room_cmdsets = list()
+        object_cmdsets = list()
         for cmdobj in cmdset_providers:
             current, cur_cmdsets = yield _get_cmdsets(cmdobj, current_cmdset)
             if current:
                 current_cmdset = current_cmdset + current
             if cur_cmdsets:
-                char_cmdsets += cur_cmdsets
+                object_cmdsets += cur_cmdsets
             match cmdobj.cmdset_provider_type:
                 case "object":
                     if not current.no_objs:
@@ -432,17 +431,12 @@ def get_and_merge_cmdsets(
                             local_obj_cmdsets = [
                                 cmdset for cmdset in local_obj_cmdsets if cmdset.key != "ExitCmdSet"
                             ]
-                        room_cmdsets += local_obj_cmdsets
+                        object_cmdsets += local_obj_cmdsets
 
         # weed out all non-found sets
-        char_cmdsets = yield [
-            cmdset for cmdset in char_cmdsets if cmdset and cmdset.key != "_EMPTY_CMDSET"
+        cmdsets = yield [
+            cmdset for cmdset in object_cmdsets if cmdset and cmdset.key != "_EMPTY_CMDSET"
         ]
-        room_cmdsets = yield [
-            cmdset for cmdset in room_cmdsets if cmdset and cmdset.key != "_EMPTY_CMDSET"
-        ]
-        cmdsets = char_cmdsets + room_cmdsets
-
         # report cmdset errors to user (these should already have been logged)
         if report_to:
             yield [
@@ -686,14 +680,9 @@ def cmdhandler(
 
             else:
                 # no explicit cmdobject given, figure it out
-                import time as _time
-                _merge_start = _time.perf_counter()
                 cmdset = yield get_and_merge_cmdsets(
                     caller, cmdset_providers_list, callertype, raw_string, cmdid=cmdid
                 )
-                _merge_ms = (_time.perf_counter() - _merge_start) * 1000
-                if _merge_ms >= 50:
-                    logger.log_info(f"[PERF] cmdset_merge: {_merge_ms:.0f}ms | {caller}")
                 if not cmdset:
                     # this is bad and shouldn't happen.
                     raise NoCmdSets
