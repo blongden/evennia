@@ -699,15 +699,12 @@ def cmdhandler(
                 # input handler instead of matching against commands.
                 # Without this, commands with aliases like "yes" or "no"
                 # intercept confirmation prompts.
-                if getattr(getattr(caller, "ndb", None), "_getinput", None):
+                _getinput = getattr(getattr(caller, "ndb", None), "_getinput", None)
+                if _getinput:
                     syscmd = yield cmdset.get(CMD_NOMATCH)
                     if syscmd:
-                        syscmd.caller = caller
-                        syscmd.cmdname = raw_string.strip()
                         syscmd.raw_string = unformatted_raw_string
-                        syscmd.cmdstring = raw_string.strip()
-                        syscmd.args = ""
-                        raise ExecSystemCommand(syscmd, raw_string)
+                        raise ExecSystemCommand(syscmd, unformatted_raw_string)
 
                 # Parse the input string and match to available cmdset.
                 # This also checks for permissions, so all commands in match
