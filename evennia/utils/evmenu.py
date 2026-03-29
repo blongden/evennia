@@ -278,8 +278,9 @@ from django.conf import settings
 from django.utils.translation import gettext as _
 
 import evennia
-from evennia import CmdSet, Command
 from evennia.commands import cmdhandler
+from evennia.commands.cmdset import CmdSet
+from evennia.commands.command import Command
 from evennia.utils import logger
 from evennia.utils.ansi import strip_ansi
 from evennia.utils.evtable import EvColumn, EvTable
