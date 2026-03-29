@@ -49,9 +49,7 @@ _IN_GAME_ERRORS = settings.IN_GAME_ERRORS
 __all__ = ("cmdhandler", "InterruptCommand")
 _GA = object.__getattribute__
 _CMDSET_MERGE_CACHE = {}
-_CHAR_CMDSET_CACHE = {}
-_ROOM_CMDSET_CACHE = {}
-_STABLE_MERGE_CACHE = {}  # keyed on (caller_id, location_id, char_cmdset_version)
+_STABLE_MERGE_CACHE = {}  # keyed on (caller_id, location_id)
 
 # tracks recursive calls by each caller
 # to avoid infinite loops (commands calling themselves)
