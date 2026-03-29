@@ -49,17 +49,6 @@ _IN_GAME_ERRORS = settings.IN_GAME_ERRORS
 __all__ = ("cmdhandler", "InterruptCommand")
 _GA = object.__getattribute__
 _CMDSET_MERGE_CACHE = {}
-_STABLE_MERGE_CACHE = {}  # keyed on (caller_id, location_id)
-
-
-def invalidate_stable_cache(obj):
-    """Invalidate the stable cmdset merge cache for an object.
-
-    Called by CmdSetHandler.add() and .remove() when cmdsets change.
-    """
-    _obj_id = id(obj)
-    _loc_id = id(getattr(obj, 'location', None))
-    _STABLE_MERGE_CACHE.pop((_obj_id, _loc_id), None)
 
 # tracks recursive calls by each caller
 # to avoid infinite loops (commands calling themselves)
@@ -463,34 +452,35 @@ def get_and_merge_cmdsets(
             ]
 
         if cmdsets:
-            # Stable cache key based on caller identity and location,
-            # not object ids which change every call. The cmdset_dirty
-            # flag on ndb signals when character cmdsets have changed.
-            _caller_id = id(caller)
-            _loc_id = id(getattr(caller, 'location', None))
-            _dirty = getattr(getattr(caller, 'ndb', None), '_cmdsets_dirty', False)
-            _stable_key = (_caller_id, _loc_id)
-
-            if not _dirty and _stable_key in _STABLE_MERGE_CACHE:
-                cmdset = _STABLE_MERGE_CACHE[_stable_key]
+            # faster to do tuple on list than to build tuple directly
+            mergehash = tuple([id(cmdset) for cmdset in cmdsets])
+            if mergehash in _CMDSET_MERGE_CACHE:
+                # cached merge exist; use that
+                cmdset = _CMDSET_MERGE_CACHE[mergehash]
             else:
-                # Full merge needed
+                # we group and merge all same-prio cmdsets separately (this avoids
+                # order-dependent clashes in certain cases, such as
+                # when duplicates=True)
                 tempmergers = {}
-                for cs in cmdsets:
-                    prio = cs.priority
+                for cmdset in cmdsets:
+                    prio = cmdset.priority
                     if prio in tempmergers:
-                        tempmergers[prio] = yield tempmergers[prio] + cs
+                        # merge same-prio cmdset together separately
+                        tempmergers[prio] = yield tempmergers[prio] + cmdset
                     else:
-                        tempmergers[prio] = cs
-                sorted_cs = sorted(tempmergers.values(), key=lambda x: x.priority)
-                cmdset = sorted_cs[0]
-                for mcs in sorted_cs[1:]:
-                    cmdset = yield cmdset + mcs
+                        tempmergers[prio] = cmdset
+
+                # sort cmdsets after reverse priority (highest prio are merged in last)
+                sorted_cmdsets = yield sorted(list(tempmergers.values()), key=lambda x: x.priority)
+
+                # Merge all command sets into one, beginning with the lowest-prio one
+                cmdset = sorted_cmdsets[0]
+                for merging_cmdset in sorted_cmdsets[1:]:
+                    cmdset = yield cmdset + merging_cmdset
+                # store the original, ungrouped set for diagnosis
                 cmdset.merged_from = cmdsets
-                _STABLE_MERGE_CACHE[_stable_key] = cmdset
-                # Clear dirty flag
-                if hasattr(caller, 'ndb'):
-                    caller.ndb._cmdsets_dirty = False
+                # cache
+                _CMDSET_MERGE_CACHE[mergehash] = cmdset
         else:
             cmdset = None
         for cset in (cset for cset in local_obj_cmdsets if cset):

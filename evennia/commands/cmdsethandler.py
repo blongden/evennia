@@ -478,8 +478,6 @@ class CmdSetHandler(object):
             else:
                 self.cmdset_stack.append(cmdset)
             self.update()
-            from evennia.commands.cmdhandler import invalidate_stable_cache
-            invalidate_stable_cache(self.obj)
 
     def add_default(self, cmdset, emit_to_obj=None, persistent=True, **kwargs):
         """
