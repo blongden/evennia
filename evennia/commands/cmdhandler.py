@@ -27,9 +27,6 @@ command line. The processing of a command works as follows:
 
 """
 
-from datetime import datetime
-import json
-import time
 import types
 from collections import defaultdict
 from copy import copy
@@ -45,15 +42,13 @@ from twisted.internet.task import deferLater
 from evennia.commands.cmdset import CmdSet
 from evennia.commands.command import InterruptCommand
 from evennia.utils import logger, utils
-from evennia.utils.utils import make_iter, string_suggestions
+from evennia.utils.utils import string_suggestions
 
 _IN_GAME_ERRORS = settings.IN_GAME_ERRORS
 
 __all__ = ("cmdhandler", "InterruptCommand")
 _GA = object.__getattribute__
-_COMMON_CMDSET_CACHE = {}
-_EXIT_CMDSET_CACHE = {}
-_FULL_CMDSET_CACHE = {}
+_CMDSET_MERGE_CACHE = {}
 
 # tracks recursive calls by each caller
 # to avoid infinite loops (commands calling themselves)
@@ -346,6 +341,7 @@ def get_and_merge_cmdsets(
 
     """
     try:
+
         @inlineCallbacks
         def _get_local_obj_cmdsets(obj):
             """
@@ -377,7 +373,6 @@ def get_and_merge_cmdsets(
                             _GA(lobj, "at_cmdset_get")(caller=caller)
                         except Exception:
                             logger.log_trace()
-
                     # the call-type lock is checked here, it makes sure an account
                     # is not seeing e.g. the commands on a fellow account (which is why
                     # the no_superuser_bypass must be True)
@@ -388,7 +383,6 @@ def get_and_merge_cmdsets(
                             if lobj.cmdset.current
                         )
                     )
-
                     for cset in local_obj_cmdsets:
                         # This is necessary for object sets, or we won't be able to
                         # separate the command sets from each other in a busy room. We
@@ -418,44 +412,16 @@ def get_and_merge_cmdsets(
             except AttributeError:
                 return (CmdSet(), [])
 
-        @inlineCallbacks
-        def merge_cmdsets(cmdsets_to_merge):
-            """Helper function to merge a list of cmdsets."""
-            if not cmdsets_to_merge:
-                return CmdSet()
-                
-            # Group by priority
-            tempmergers = {}
-            for cmdset in cmdsets_to_merge:
-                prio = cmdset.priority
-                if prio in tempmergers:
-                    tempmergers[prio] = yield tempmergers[prio] + cmdset
-                else:
-                    tempmergers[prio] = cmdset
-                
-            # Sort and merge
-            sorted_cmdsets = sorted(list(tempmergers.values()), 
-                                        key=lambda x: x.priority)
-            
-            # Merge in order
-            final_cmdset = sorted_cmdsets[0]
-            for merging_cmdset in sorted_cmdsets[1:]:
-                final_cmdset = final_cmdset + merging_cmdset
-
-            return final_cmdset
-
         local_obj_cmdsets = []
 
         current_cmdset = CmdSet()
         object_cmdsets = list()
-        room_cmdsets = list()
-        for cmdobj in make_iter(cmdset_providers):
+        for cmdobj in cmdset_providers:
             current, cur_cmdsets = yield _get_cmdsets(cmdobj, current_cmdset)
             if current:
                 current_cmdset = current_cmdset + current
             if cur_cmdsets:
                 object_cmdsets += cur_cmdsets
-
             match cmdobj.cmdset_provider_type:
                 case "object":
                     if not current.no_objs:
@@ -465,60 +431,50 @@ def get_and_merge_cmdsets(
                             local_obj_cmdsets = [
                                 cmdset for cmdset in local_obj_cmdsets if cmdset.key != "ExitCmdSet"
                             ]
-                        room_cmdsets += local_obj_cmdsets
+                        object_cmdsets += local_obj_cmdsets
 
         # weed out all non-found sets
-        object_cmdsets = yield [
+        cmdsets = yield [
             cmdset for cmdset in object_cmdsets if cmdset and cmdset.key != "_EMPTY_CMDSET"
         ]
-
-        # weed out all non-found sets
-        room_cmdsets = yield [
-            cmdset for cmdset in room_cmdsets if cmdset and cmdset.key != "_EMPTY_CMDSET"
-        ]
-
         # report cmdset errors to user (these should already have been logged)
         if report_to:
             yield [
                 report_to.msg(err_helper(cmdset.errmessage, cmdid=cmdid))
-                for cmdset in object_cmdsets + room_cmdsets
+                for cmdset in cmdsets
                 if cmdset.key == "_CMDSET_ERROR"
             ]
 
-        if object_cmdsets or room_cmdsets:
-            # Create separate hashes
-            object_hash = tuple([id(cmdset) for cmdset in object_cmdsets])
-            room_hash = tuple([id(cmdset) for cmdset in room_cmdsets])
-            full_hash = tuple(list(object_hash) + list(room_hash))
-            
-            if full_hash in _FULL_CMDSET_CACHE:
-                return _FULL_CMDSET_CACHE[full_hash]
-            
-            if object_hash in _COMMON_CMDSET_CACHE:
-                merged_object = _COMMON_CMDSET_CACHE[object_hash]
+        if cmdsets:
+            # faster to do tuple on list than to build tuple directly
+            mergehash = tuple([id(cmdset) for cmdset in cmdsets])
+            if mergehash in _CMDSET_MERGE_CACHE:
+                # cached merge exist; use that
+                cmdset = _CMDSET_MERGE_CACHE[mergehash]
             else:
-                # Merge common cmdsets
-                start = datetime.now()
-                merged_object = yield merge_cmdsets(object_cmdsets)
-                logger.info(json.dumps({"event": "cache_miss", "cmdset_type": "object", "cmdset_count": len(object_hash), "duration": str(datetime.now() - start)}))
-                _COMMON_CMDSET_CACHE[object_hash] = merged_object
+                # we group and merge all same-prio cmdsets separately (this avoids
+                # order-dependent clashes in certain cases, such as
+                # when duplicates=True)
+                tempmergers = {}
+                for cmdset in cmdsets:
+                    prio = cmdset.priority
+                    if prio in tempmergers:
+                        # merge same-prio cmdset together separately
+                        tempmergers[prio] = yield tempmergers[prio] + cmdset
+                    else:
+                        tempmergers[prio] = cmdset
 
-            # Handle exit cmdsets separately
-            if room_hash in _EXIT_CMDSET_CACHE:
-                merged_room = _EXIT_CMDSET_CACHE[room_hash]
-            else:
-                # Merge exit cmdsets
-                start = datetime.now()
-                merged_room = yield merge_cmdsets(room_cmdsets)
-                logger.info(json.dumps({"event": "cache_miss", "cmdset_type": "room", "cmdset_count": len(room_hash), "duration": str(datetime.now() - start)}))
-                _EXIT_CMDSET_CACHE[room_hash] = merged_room
+                # sort cmdsets after reverse priority (highest prio are merged in last)
+                sorted_cmdsets = yield sorted(list(tempmergers.values()), key=lambda x: x.priority)
 
-
-            # Final merge of common and exit cmdsets
-            start = datetime.now()
-            cmdset = merged_object + merged_room
-            logger.info(json.dumps({"event": "cache_miss", "cmdset_type": "full", "cmdset_count": len(full_hash), "duration": str(datetime.now() - start)}))
-            _FULL_CMDSET_CACHE[full_hash] = cmdset
+                # Merge all command sets into one, beginning with the lowest-prio one
+                cmdset = sorted_cmdsets[0]
+                for merging_cmdset in sorted_cmdsets[1:]:
+                    cmdset = yield cmdset + merging_cmdset
+                # store the original, ungrouped set for diagnosis
+                cmdset.merged_from = cmdsets
+                # cache
+                _CMDSET_MERGE_CACHE[mergehash] = cmdset
         else:
             cmdset = None
         for cset in (cset for cset in local_obj_cmdsets if cset):
@@ -682,6 +638,7 @@ def cmdhandler(
             else:
                 # post-command hook
                 yield cmd.at_post_cmd()
+
                 if cmd.save_for_next:
                     # store a reference to this command, possibly
                     # accessible by the next command.
