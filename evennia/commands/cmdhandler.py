@@ -695,35 +695,6 @@ def cmdhandler(
                     syscmd = yield cmdset.get(CMD_NOINPUT)
                     sysarg = ""
                     raise ExecSystemCommand(syscmd, sysarg)
-                # If get_input is active, route ALL input directly to the
-                # input handler instead of matching against commands.
-                # Without this, commands with aliases like "yes" or "no"
-                # intercept confirmation prompts.
-                # If get_input is active, bypass normal command matching and
-                # call the callback directly. We can't rely on CMD_NOMATCH
-                # because other commands may match the input first (e.g.
-                # emotes with "yes"/"no" aliases), and the CmdGetInput may
-                # be overridden in the merge by game-specific nomatch handlers.
-                _getinput = getattr(getattr(caller, "ndb", None), "_getinput", None)
-                if _getinput:
-                    try:
-                        callback = _getinput._callback
-                        _getinput._session = session
-                        result = unformatted_raw_string.rstrip()
-                        ok = not callback(caller, _getinput._prompt, result,
-                                         *(_getinput._args or ()),
-                                         **(_getinput._kwargs or {}))
-                        if ok:
-                            del caller.ndb._getinput
-                            from evennia.utils.evmenu import InputCmdSet
-                            caller.cmdset.remove(InputCmdSet)
-                    except Exception:
-                        caller.msg("|rError in get_input. Choice not confirmed (report to admin)|n")
-                        logger.log_trace("Error in get_input")
-                        from evennia.utils.evmenu import InputCmdSet
-                        caller.cmdset.remove(InputCmdSet)
-                    return
-
                 # Parse the input string and match to available cmdset.
                 # This also checks for permissions, so all commands in match
                 # are commands the caller is allowed to call.
