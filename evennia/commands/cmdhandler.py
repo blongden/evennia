@@ -49,6 +49,8 @@ _IN_GAME_ERRORS = settings.IN_GAME_ERRORS
 __all__ = ("cmdhandler", "InterruptCommand")
 _GA = object.__getattribute__
 _CMDSET_MERGE_CACHE = {}
+_CHAR_CMDSET_CACHE = {}
+_ROOM_CMDSET_CACHE = {}
 
 # tracks recursive calls by each caller
 # to avoid infinite loops (commands calling themselves)
@@ -415,13 +417,14 @@ def get_and_merge_cmdsets(
         local_obj_cmdsets = []
 
         current_cmdset = CmdSet()
-        object_cmdsets = list()
+        char_cmdsets = list()
+        room_cmdsets = list()
         for cmdobj in cmdset_providers:
             current, cur_cmdsets = yield _get_cmdsets(cmdobj, current_cmdset)
             if current:
                 current_cmdset = current_cmdset + current
             if cur_cmdsets:
-                object_cmdsets += cur_cmdsets
+                char_cmdsets += cur_cmdsets
             match cmdobj.cmdset_provider_type:
                 case "object":
                     if not current.no_objs:
@@ -431,12 +434,17 @@ def get_and_merge_cmdsets(
                             local_obj_cmdsets = [
                                 cmdset for cmdset in local_obj_cmdsets if cmdset.key != "ExitCmdSet"
                             ]
-                        object_cmdsets += local_obj_cmdsets
+                        room_cmdsets += local_obj_cmdsets
 
         # weed out all non-found sets
-        cmdsets = yield [
-            cmdset for cmdset in object_cmdsets if cmdset and cmdset.key != "_EMPTY_CMDSET"
+        char_cmdsets = yield [
+            cmdset for cmdset in char_cmdsets if cmdset and cmdset.key != "_EMPTY_CMDSET"
         ]
+        room_cmdsets = yield [
+            cmdset for cmdset in room_cmdsets if cmdset and cmdset.key != "_EMPTY_CMDSET"
+        ]
+        cmdsets = char_cmdsets + room_cmdsets
+
         # report cmdset errors to user (these should already have been logged)
         if report_to:
             yield [
@@ -446,35 +454,59 @@ def get_and_merge_cmdsets(
             ]
 
         if cmdsets:
-            # faster to do tuple on list than to build tuple directly
-            mergehash = tuple([id(cmdset) for cmdset in cmdsets])
-            if mergehash in _CMDSET_MERGE_CACHE:
-                # cached merge exist; use that
-                cmdset = _CMDSET_MERGE_CACHE[mergehash]
+            # Two-tier cache: character cmdsets and room cmdsets are cached
+            # separately so that moving between rooms (which changes room
+            # cmdsets) doesn't force re-merging the character's cmdsets.
+            char_hash = tuple(id(cs) for cs in char_cmdsets)
+            room_hash = tuple(id(cs) for cs in room_cmdsets)
+            full_hash = (char_hash, room_hash)
+
+            if full_hash in _CMDSET_MERGE_CACHE:
+                cmdset = _CMDSET_MERGE_CACHE[full_hash]
             else:
-                # we group and merge all same-prio cmdsets separately (this avoids
-                # order-dependent clashes in certain cases, such as
-                # when duplicates=True)
-                tempmergers = {}
-                for cmdset in cmdsets:
-                    prio = cmdset.priority
-                    if prio in tempmergers:
-                        # merge same-prio cmdset together separately
-                        tempmergers[prio] = yield tempmergers[prio] + cmdset
-                    else:
-                        tempmergers[prio] = cmdset
+                # merge character cmdsets (cached separately)
+                if char_hash in _CHAR_CMDSET_CACHE:
+                    merged_char = _CHAR_CMDSET_CACHE[char_hash]
+                else:
+                    tempmergers = {}
+                    for cs in char_cmdsets:
+                        prio = cs.priority
+                        if prio in tempmergers:
+                            tempmergers[prio] = yield tempmergers[prio] + cs
+                        else:
+                            tempmergers[prio] = cs
+                    sorted_cs = sorted(tempmergers.values(), key=lambda x: x.priority)
+                    merged_char = sorted_cs[0]
+                    for mcs in sorted_cs[1:]:
+                        merged_char = yield merged_char + mcs
+                    _CHAR_CMDSET_CACHE[char_hash] = merged_char
 
-                # sort cmdsets after reverse priority (highest prio are merged in last)
-                sorted_cmdsets = yield sorted(list(tempmergers.values()), key=lambda x: x.priority)
+                # merge room cmdsets (cached separately)
+                if room_hash in _ROOM_CMDSET_CACHE:
+                    merged_room = _ROOM_CMDSET_CACHE[room_hash]
+                elif room_cmdsets:
+                    tempmergers = {}
+                    for cs in room_cmdsets:
+                        prio = cs.priority
+                        if prio in tempmergers:
+                            tempmergers[prio] = yield tempmergers[prio] + cs
+                        else:
+                            tempmergers[prio] = cs
+                    sorted_cs = sorted(tempmergers.values(), key=lambda x: x.priority)
+                    merged_room = sorted_cs[0]
+                    for mcs in sorted_cs[1:]:
+                        merged_room = yield merged_room + mcs
+                    _ROOM_CMDSET_CACHE[room_hash] = merged_room
+                else:
+                    merged_room = None
 
-                # Merge all command sets into one, beginning with the lowest-prio one
-                cmdset = sorted_cmdsets[0]
-                for merging_cmdset in sorted_cmdsets[1:]:
-                    cmdset = yield cmdset + merging_cmdset
-                # store the original, ungrouped set for diagnosis
+                # final merge of character + room
+                if merged_room:
+                    cmdset = yield merged_char + merged_room
+                else:
+                    cmdset = merged_char
                 cmdset.merged_from = cmdsets
-                # cache
-                _CMDSET_MERGE_CACHE[mergehash] = cmdset
+                _CMDSET_MERGE_CACHE[full_hash] = cmdset
         else:
             cmdset = None
         for cset in (cset for cset in local_obj_cmdsets if cset):
