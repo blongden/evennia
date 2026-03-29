@@ -51,6 +51,7 @@ _GA = object.__getattribute__
 _CMDSET_MERGE_CACHE = {}
 _CHAR_CMDSET_CACHE = {}
 _ROOM_CMDSET_CACHE = {}
+_STABLE_MERGE_CACHE = {}  # keyed on (caller_id, location_id, char_cmdset_version)
 
 # tracks recursive calls by each caller
 # to avoid infinite loops (commands calling themselves)
@@ -454,59 +455,34 @@ def get_and_merge_cmdsets(
             ]
 
         if cmdsets:
-            # Two-tier cache: character cmdsets and room cmdsets are cached
-            # separately so that moving between rooms (which changes room
-            # cmdsets) doesn't force re-merging the character's cmdsets.
-            char_hash = tuple(id(cs) for cs in char_cmdsets)
-            room_hash = tuple(id(cs) for cs in room_cmdsets)
-            full_hash = (char_hash, room_hash)
+            # Stable cache key based on caller identity and location,
+            # not object ids which change every call. The cmdset_dirty
+            # flag on ndb signals when character cmdsets have changed.
+            _caller_id = id(caller)
+            _loc_id = id(getattr(caller, 'location', None))
+            _dirty = getattr(getattr(caller, 'ndb', None), '_cmdsets_dirty', False)
+            _stable_key = (_caller_id, _loc_id)
 
-            if full_hash in _CMDSET_MERGE_CACHE:
-                cmdset = _CMDSET_MERGE_CACHE[full_hash]
+            if not _dirty and _stable_key in _STABLE_MERGE_CACHE:
+                cmdset = _STABLE_MERGE_CACHE[_stable_key]
             else:
-                # merge character cmdsets (cached separately)
-                if char_hash in _CHAR_CMDSET_CACHE:
-                    merged_char = _CHAR_CMDSET_CACHE[char_hash]
-                else:
-                    tempmergers = {}
-                    for cs in char_cmdsets:
-                        prio = cs.priority
-                        if prio in tempmergers:
-                            tempmergers[prio] = yield tempmergers[prio] + cs
-                        else:
-                            tempmergers[prio] = cs
-                    sorted_cs = sorted(tempmergers.values(), key=lambda x: x.priority)
-                    merged_char = sorted_cs[0]
-                    for mcs in sorted_cs[1:]:
-                        merged_char = yield merged_char + mcs
-                    _CHAR_CMDSET_CACHE[char_hash] = merged_char
-
-                # merge room cmdsets (cached separately)
-                if room_hash in _ROOM_CMDSET_CACHE:
-                    merged_room = _ROOM_CMDSET_CACHE[room_hash]
-                elif room_cmdsets:
-                    tempmergers = {}
-                    for cs in room_cmdsets:
-                        prio = cs.priority
-                        if prio in tempmergers:
-                            tempmergers[prio] = yield tempmergers[prio] + cs
-                        else:
-                            tempmergers[prio] = cs
-                    sorted_cs = sorted(tempmergers.values(), key=lambda x: x.priority)
-                    merged_room = sorted_cs[0]
-                    for mcs in sorted_cs[1:]:
-                        merged_room = yield merged_room + mcs
-                    _ROOM_CMDSET_CACHE[room_hash] = merged_room
-                else:
-                    merged_room = None
-
-                # final merge of character + room
-                if merged_room:
-                    cmdset = yield merged_char + merged_room
-                else:
-                    cmdset = merged_char
+                # Full merge needed
+                tempmergers = {}
+                for cs in cmdsets:
+                    prio = cs.priority
+                    if prio in tempmergers:
+                        tempmergers[prio] = yield tempmergers[prio] + cs
+                    else:
+                        tempmergers[prio] = cs
+                sorted_cs = sorted(tempmergers.values(), key=lambda x: x.priority)
+                cmdset = sorted_cs[0]
+                for mcs in sorted_cs[1:]:
+                    cmdset = yield cmdset + mcs
                 cmdset.merged_from = cmdsets
-                _CMDSET_MERGE_CACHE[full_hash] = cmdset
+                _STABLE_MERGE_CACHE[_stable_key] = cmdset
+                # Clear dirty flag
+                if hasattr(caller, 'ndb'):
+                    caller.ndb._cmdsets_dirty = False
         else:
             cmdset = None
         for cset in (cset for cset in local_obj_cmdsets if cset):
