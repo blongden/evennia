@@ -18,9 +18,11 @@ TASK_HANDLER = None
 
 def handle_error(*args, **kwargs):
     """Handle errors within deferred objects."""
+    from evennia.commands.command import InterruptCommand
     for arg in args:
-        # suppress cancel errors
-        if arg.type == DefCancelledError:
+        # suppress cancel errors and InterruptCommand (used by check_engaged
+        # in delayed callbacks to stop action chains)
+        if arg.type in (DefCancelledError, InterruptCommand):
             continue
         raise arg
 
