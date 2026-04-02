@@ -1,5 +1,9 @@
 # Changelog
 
+## Main branch
+
+Docs: Griatch
+
 ## Evennia 6.0.0
 
 Feb 15, 2026
@@ -36,7 +40,7 @@ Feb 15, 2026
 - [Fix][issue3858]: Fix parsing issues in dice contrib (Griatch)
 - Fix: `Typeclass.objects.get_by_tag()` will now always convert tag keys/categories to integers, to
   avoid inconsistencies with PostgreSQL databases (Griatch)
-- [Fix][issue3513]: Fixed issue where OnDemandHandler could traceback on an
+- [Fix][issue3813]: Fixed issue where OnDemandHandler could traceback on an
   un-pickle-able object and cause an error at server shutdown (Griatch)
 - [Fix][issue3649]: The `:j` command in EvEditor would squash empty lines (Griatch)
 - [Fix][issue3560]: Tutorial QuestHandler failed to load after server restart (Griatch)
@@ -80,6 +84,7 @@ Feb 15, 2026
 [pull3733]: https://github.com/evennia/evennia/pull/3853
 [pull3864]: https://github.com/evennia/evennia/pull/3864
 [pull3863]: https://github.com/evennia/evennia/pull/3863
+[pull3845]: https://github.com/evennia/evennia/pull/3845
 [pull3862]: https://github.com/evennia/evennia/pull/3862
 [issue3858]: https://github.com/evennia/evennia/issues/3858
 [issue3813]: https://github.com/evennia/evennia/issues/3513
@@ -93,6 +98,7 @@ Feb 15, 2026
 [issue3193]: https://github.com/evennia/evennia/issues/3193
 [issue3082]: https://github.com/evennia/evennia/issues/3082
 [issue3693]: https://github.com/evennia/evennia/issues/3693
+[issue2627]: https://github.com/evennia/evennia/issues/2627
 
 
 ## Evennia 5.0.1
